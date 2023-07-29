@@ -1,0 +1,67 @@
+# https://github.com/trimstray/the-practical-linux-hardening-guide/wiki/OpenSSH
+---
+- name: Hardering ssh
+  hosts: sshhard
+  become: yes
+  tasks:
+    - name: install python
+      #ansible.builtin.raw:
+      ansible.builtin.shell:
+        sudo apt update; sudo apt install python3-pip -y
+      args:
+        executable: /bin/bash
+    - name: install ntpdate
+      ansible.builtin.apt:
+        name: ntpdate
+        state: present
+    - name: install ntp & fail2ban
+      ansible.builtin.apt:
+        pkg:
+          - ntp
+          - fail2ban
+        state: present
+    - name: Copy over the NTP configuration
+      template: src=./template/ntp.j2 dest=/etc/ntp.conf
+   #    copy: src=/tmp/ntp.conf dest=/etc/ntp.conf
+      notify:
+      - restart ntpd
+      tags: ntp
+    - name: Synhronize time from time.windows.com
+      ansible.builtin.shell: |
+        systemctl stop ntp
+        ntpdate time.windows.com
+        systemctl start ntp
+      args:
+        executable: /bin/bash
+      become: yes
+    - name: hardening ssh
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regex: "^(#)?{{item.key}}"
+        line: "{{item.key}} {{item.value}}"
+        state: present
+      loop:
+        - { key: "Loglevel", value: "INFO" }
+        - { key: "PermitEmptyPassword", value: "no" }
+        - { key: "ClientAliveCountMax", value: "0" }
+        - { key: "ClientAliveInterval", value: "300" }
+        - { key: "MACs", value: "hmac-sha2-512,hmac-sha2-256,hmac-sha1" }
+        - { key: "Protocol", value: "2" }
+        - { key: "IgnoreRhosts", value: "yes" }
+        - { key: "Ciphers", value: "aes128-ctr,aes192-ctr,aes256-ctr,aes128-cbc,3des-cbc,aes192-cbc,aes256-cbc" }
+        - { key: "X11Forwarding", value: "yes" }
+        - { key: "AllowTcpForwarding", value: "no" }
+        - { key: "PermitTunnel", value: "no" }
+        - { key: "PasswordAuthentication", value: "no" }
+        - { key: "PermitRootLogin", value: "no" }
+      notify:
+      - restart sshd 
+  handlers:
+    - name: restart ntpd
+      systemd:
+        name: ntp
+        state: restarted
+    - name: restart sshd
+      systemd:
+        name: sshd
+        state: restarted  
